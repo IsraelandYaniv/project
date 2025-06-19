@@ -1,0 +1,458 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "repository",
+        "operation": "getPullRequests",
+        "owner": {
+          "__rl": true,
+          "value": "IsraelandYaniv",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "n8nCodeReviewer",
+          "mode": "list",
+          "cachedResultName": "n8nCodeReviewer",
+          "cachedResultUrl": "https://github.com/IsraelandYaniv/n8nCodeReviewer"
+        },
+        "returnAll": true,
+        "getRepositoryPullRequestsFilters": {}
+      },
+      "id": "7b521368-ff85-4c25-896c-fcf2b4b5ffdb",
+      "name": "Get Pull Requests",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        520,
+        500
+      ],
+      "webhookId": "eaef80e8-f5ef-4f1e-8daa-e1ee8a002f96",
+      "credentials": {
+        "githubOAuth2Api": {
+          "id": "Vc0v7vyg2ZmoCTNv",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        980,
+        1020
+      ],
+      "id": "cc1cc713-b4e4-4753-8635-0660af4255a3",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "wxGJOseP4dHoBxvD",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "owner": {
+          "__rl": true,
+          "value": "IsraelandYaniv",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "n8nCodeReviewer",
+          "mode": "list",
+          "cachedResultName": "n8nCodeReviewer",
+          "cachedResultUrl": "https://github.com/IsraelandYaniv/n8nCodeReviewer"
+        },
+        "events": [
+          "pull_request"
+        ],
+        "options": {}
+      },
+      "type": "n8n-nodes-base.githubTrigger",
+      "typeVersion": 1,
+      "position": [
+        520,
+        340
+      ],
+      "id": "835f9f8b-ed76-4468-b3a3-dca52fba58a4",
+      "name": "Github Trigger",
+      "webhookId": "2b1a7d7b-e49b-416b-b8a1-aa0a7d2b928e",
+      "credentials": {
+        "githubOAuth2Api": {
+          "id": "Vc0v7vyg2ZmoCTNv",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        260,
+        500
+      ],
+      "id": "32124289-b584-4c68-8fd0-b62d1e06f342",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.diff_url }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        440
+      ],
+      "id": "051738fd-4029-4b4b-8e1c-721aef29cdf4",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Get Pull Requests').item.json.head.user.login }}/{{ $('Get Pull Requests').item.json.head.repo.name }}/pulls/{{ $('Get Pull Requests').item.json.number }}/comments\n",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"{{ $json.body }}\",\n  \"commit_id\": \"{{ $json.commit_id }}\",\n  \"path\": \"{{ $json.path }}\",\n  \"position\": {{ $json.position }}\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        440
+      ],
+      "id": "1c3c7a44-604a-4e5b-882a-bd0646d0d319",
+      "name": "HTTP Request1",
+      "credentials": {
+        "githubOAuth2Api": {
+          "id": "Vc0v7vyg2ZmoCTNv",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import json\nimport re\n\ndef parse_llm_output(llm_output):\n    # Remove leading/trailing whitespace and extract JSON object using regex\n    cleaned = llm_output.strip()\n    # Extract first {...} object (non-greedy)\n    match = re.search(r'\\{[\\s\\S]*?\\}', cleaned)\n    if not match:\n        print(\"Could not find a JSON object in the LLM output.\")\n        raise ValueError(\"Invalid JSON from LLM output: No JSON object found\")\n    json_str = match.group(0)\n    print(\"Trying to decode this JSON:\")\n    print(json_str)\n    try:\n        comment_map = json.loads(json_str)\n    except json.JSONDecodeError as e:\n        print(\"Decoding failed!\", e)\n        raise ValueError(\"Invalid JSON from LLM output\") from e\n\n    # Split keys into path and line\n    result = []\n    i = 0\n    for key, message in comment_map.items():\n        print(i)\n        i += 1\n        match = re.match(r\"^(.*):(\\d+)$\", key)\n        if not match:\n            continue\n        file_path, line_str = match.groups()\n        result.append({\n            \"body\": message.strip(),\n            \"commit_id\": _('Get Pull Requests').first().json.head.sha,\n            \"path\": file_path,\n            \"position\": int(line_str),\n        })\n\n    return result\n\nreturn parse_llm_output(_input.first().json.output)"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1880,
+        440
+      ],
+      "id": "62bacfe1-5d3b-4a74-a2e4-e3d6432d1d99",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        980,
+        260
+      ],
+      "id": "154452d8-860f-4bfa-9a58-5dc65befa4c2",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "wxGJOseP4dHoBxvD",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a security-focused code reviewer. Analyze the following code diff. Point out any security vulnerabilities, suspicious patterns, or unsafe behaviors. Suggest improvements if necessary.\n\n{{ $json.data }}\n\nReturn your answer as a dict where the key is the file path and line number where the comment needs to go (format: \"full/path/to/file.ext:line_num\") and the value is the comment for that line. note that not every line needs a comment and only comment on lines that need it. start your message wiht \"{\" and not with \"json\".\n\nIgnore any code quality comments, focus on security",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        960,
+        820
+      ],
+      "id": "2a3519f2-aaed-494b-8e24-a0defbf59f17",
+      "name": "Code Security Agent",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a security-focused code reviewer. Analyze the following code diff. Point out any security vulnerabilities, suspicious patterns, or unsafe behaviors. Suggest improvements if necessary.\n\n{{ $json.data }}\n\nReturn your answer as a dict where the key is the file path and line number where the comment needs to go (format: \"full/path/to/file.ext:line_num\") and the value is the comment for that line. note that not every line needs a comment and only comment on lines that need it. start your message wiht \"{\" and not with \"json\".\n\nIgnore any code quality comments, focus on security",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        960,
+        60
+      ],
+      "id": "0cb8a9e1-48a8-428d-adaa-bcbd0bd2ad34",
+      "name": "Code Quality Agent",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        980,
+        640
+      ],
+      "id": "4df5b7d3-9e26-4777-baac-af37619edf29",
+      "name": "Google Gemini Chat Model2",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "wxGJOseP4dHoBxvD",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a security-focused code reviewer. Analyze the following code diff. Point out any security vulnerabilities, suspicious patterns, or unsafe behaviors. Suggest improvements if necessary.\n\n{{ $json.data }}\n\nReturn your answer as a dict where the key is the file path and line number where the comment needs to go (format: \"full/path/to/file.ext:line_num\") and the value is the comment for that line. note that not every line needs a comment and only comment on lines that need it. start your message wiht \"{\" and not with \"json\".\n\nIgnore any code quality comments, focus on security",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        960,
+        440
+      ],
+      "id": "892b3a1b-0333-4ead-8cf6-bf7751334eec",
+      "name": "Logic Bug Finder Agent",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        640
+      ],
+      "id": "1b6da315-fe00-4f48-bd98-da50d4ec4a8b",
+      "name": "Google Gemini Chat Model3",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "wxGJOseP4dHoBxvD",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a security-focused code reviewer. Analyze the following code diff. Point out any security vulnerabilities, suspicious patterns, or unsafe behaviors. Suggest improvements if necessary.\n\n{{ $json.data }}\n\nReturn your answer as a dict where the key is the file path and line number where the comment needs to go (format: \"full/path/to/file.ext:line_num\") and the value is the comment for that line. note that not every line needs a comment and only comment on lines that need it. start your message wiht \"{\" and not with \"json\".\n\nIgnore any code quality comments, focus on security",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        440
+      ],
+      "id": "88c889ce-01ad-44e2-99ae-9fadf52d1390",
+      "name": "Aggregator Agent",
+      "executeOnce": false
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Pull Requests": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Code Security Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Github Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get Pull Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code Security Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Logic Bug Finder Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code Quality Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        []
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Code Quality Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Security Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregator Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Logic Bug Finder Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Aggregator Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Quality Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregator Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logic Bug Finder Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregator Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregator Agent": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3ccb1244-6a12-4705-80cc-862f4d07006b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "58593314def9a1faf679d3327467f97ca8f3b55968b86723ea66545cb46d69bf"
+  },
+  "id": "rYVZqRFaQ7VGWBUf",
+  "tags": []
+}
